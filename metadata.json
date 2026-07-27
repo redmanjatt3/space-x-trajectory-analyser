@@ -1,0 +1,6 @@
+{
+  "name": "SpaceX Rocket Trajectory & Physics Simulator",
+  "description": "Interactive mathematical and physical breakdown of SpaceX rocket trajectories, including differential flight equations, gravity turns, Max Q, stage separation, boostback, re-entry retropropulsion, and drone ship landing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
