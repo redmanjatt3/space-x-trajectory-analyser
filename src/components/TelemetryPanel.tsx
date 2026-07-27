@@ -21,7 +21,7 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({ currentPoint }) 
           <ArrowUpRight className="w-3.5 h-3.5 text-[#38BDF8]" />
         </div>
         <div className="flex items-baseline space-x-1">
-          <span className="text-2xl font-extrabold font-mono text-[#F0F6FC]">
+          <span key={`alt-${currentPoint.time}`} className="text-2xl font-extrabold font-mono text-[#F0F6FC] animate-value-update">
             {(currentPoint.altitude / 1000).toFixed(1)}
           </span>
           <span className="text-xs text-[#38BDF8] font-mono font-semibold">km</span>
@@ -38,14 +38,14 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({ currentPoint }) 
           <Gauge className="w-3.5 h-3.5 text-emerald-400" />
         </div>
         <div className="flex items-baseline space-x-1">
-          <span className="text-2xl font-extrabold font-mono text-emerald-400">
+          <span key={`vel-${currentPoint.time}`} className="text-2xl font-extrabold font-mono text-emerald-400 animate-value-update">
             {currentPoint.velocity.toFixed(0)}
           </span>
           <span className="text-xs text-emerald-300 font-mono font-semibold">m/s</span>
         </div>
         <div className="text-[10px] text-[#8B949E] font-mono mt-1 flex justify-between">
           <span>{kmh.toLocaleString()} km/h</span>
-          <span className="text-[#38BDF8] font-bold">Mach {currentPoint.mach}</span>
+          <span key={`mach-${currentPoint.time}`} className="text-[#38BDF8] font-bold animate-value-update">Mach {currentPoint.mach}</span>
         </div>
       </div>
 
@@ -58,7 +58,7 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({ currentPoint }) 
           <Wind className={`w-3.5 h-3.5 ${isMaxQActive ? 'text-amber-400' : 'text-[#38BDF8]'}`} />
         </div>
         <div className="flex items-baseline space-x-1">
-          <span className={`text-2xl font-extrabold font-mono ${isMaxQActive ? 'text-amber-400' : 'text-[#F0F6FC]'}`}>
+          <span key={`q-${currentPoint.time}`} className={`text-2xl font-extrabold font-mono animate-value-update ${isMaxQActive ? 'text-amber-400' : 'text-[#F0F6FC]'}`}>
             {currentPoint.dynamicPressure.toFixed(1)}
           </span>
           <span className="text-xs text-[#38BDF8] font-mono font-semibold">kPa</span>
@@ -75,7 +75,7 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({ currentPoint }) 
           <Activity className="w-3.5 h-3.5 text-purple-400" />
         </div>
         <div className="flex items-baseline space-x-1">
-          <span className="text-2xl font-extrabold font-mono text-purple-300">
+          <span key={`g-${currentPoint.time}`} className="text-2xl font-extrabold font-mono text-purple-300 animate-value-update">
             {currentPoint.gForce.toFixed(1)}
           </span>
           <span className="text-xs text-purple-400 font-mono font-semibold">Gs</span>
@@ -92,7 +92,7 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({ currentPoint }) 
           <Flame className="w-3.5 h-3.5 text-amber-500" />
         </div>
         <div className="flex items-baseline space-x-1">
-          <span className="text-2xl font-extrabold font-mono text-[#F0F6FC]">
+          <span key={`mass-${currentPoint.time}`} className="text-2xl font-extrabold font-mono text-[#F0F6FC] animate-value-update">
             {(currentPoint.massFirstStage / 1000).toFixed(0)}
           </span>
           <span className="text-xs text-amber-400 font-mono font-semibold">Tons</span>
@@ -109,7 +109,7 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({ currentPoint }) 
           <Navigation className="w-3.5 h-3.5 text-blue-400" />
         </div>
         <div className="flex items-baseline space-x-1">
-          <span className="text-2xl font-extrabold font-mono text-[#F0F6FC]">
+          <span key={`pitch-${currentPoint.time}`} className="text-2xl font-extrabold font-mono text-[#F0F6FC] animate-value-update">
             {currentPoint.pitchAngle.toFixed(0)}°
           </span>
           <span className="text-xs text-blue-400 font-mono font-semibold">pitch</span>

@@ -8,16 +8,65 @@ export interface SimulationParams {
   pitchKickAngle: number; // degrees (default ~1.8deg)
   targetLandingDistance: number; // meters downrange (e.g., 300,000m for ASDS)
   suicideBurnSafetyMargin: number; // multiplier e.g. 1.05
+  enableDrag?: boolean; // Enable / disable aerodynamic drag
+  launchLatitude?: number; // Launch site latitude in degrees (e.g. 28.5 for Cape Canaveral)
+  windSpeed?: number; // m/s surface wind speed
+  windDirection?: number; // degrees (0° = tailwind downrange, 180° = headwind, 90° = crosswind)
 }
 
 /**
- * Calculates atmospheric density as a function of altitude (m)
- * Using barometric formula with exponential decay and atmosphere layer transitions
+ * Calculates atmospheric density (kg/m^3) using US Standard Atmosphere 1976 model
+ * with altitude-dependent multi-layer temperature lapse rates and hydrostatic pressure balances.
  */
 export function calculateAtmosphericDensity(altitude: number): number {
-  if (altitude < 0) return EARTH_CONSTANTS.SEA_LEVEL_DENSITY;
-  if (altitude > 100000) return 0; // Exosphere / vacuum
-  return EARTH_CONSTANTS.SEA_LEVEL_DENSITY * Math.exp(-altitude / EARTH_CONSTANTS.SCALE_HEIGHT);
+  if (altitude <= 0) return EARTH_CONSTANTS.SEA_LEVEL_DENSITY;
+  if (altitude >= 100000) return 0; // Exosphere / vacuum above Kármán line (100 km)
+
+  const g0 = EARTH_CONSTANTS.G0;
+  const R = 287.053; // Specific gas constant for air (J/(kg K))
+
+  // Layer 0: Troposphere (0 - 11,000 m) - Standard lapse rate L0 = -0.0065 K/m
+  if (altitude < 11000) {
+    const T0 = 288.15;
+    const L0 = -0.0065;
+    const T = T0 + L0 * altitude;
+    const P0 = 101325;
+    const P = P0 * Math.pow(T / T0, -g0 / (L0 * R));
+    return P / (R * T);
+  }
+  // Layer 1: Tropopause / Lower Stratosphere (11,000 - 20,000 m) - Isothermal T1 = 216.65 K
+  else if (altitude < 20000) {
+    const T1 = 216.65;
+    const P11 = 22632.1;
+    const P = P11 * Math.exp((-g0 * (altitude - 11000)) / (R * T1));
+    return P / (R * T1);
+  }
+  // Layer 2: Middle Stratosphere (20,000 - 32,000 m) - L2 = +0.001 K/m
+  else if (altitude < 32000) {
+    const T2 = 216.65;
+    const L2 = 0.001;
+    const P20 = 5474.89;
+    const T = T2 + L2 * (altitude - 20000);
+    const P = P20 * Math.pow(T / T2, -g0 / (L2 * R));
+    return P / (R * T);
+  }
+  // Layer 3: Upper Stratosphere (32,000 - 47,000 m) - L3 = +0.0028 K/m
+  else if (altitude < 47000) {
+    const T3 = 228.65;
+    const L3 = 0.0028;
+    const P32 = 868.02;
+    const T = T3 + L3 * (altitude - 32000);
+    const P = P32 * Math.pow(T / T3, -g0 / (L3 * R));
+    return P / (R * T);
+  }
+  // Layer 4: Mesosphere (47,000 - 100,000 m) - Upper atmospheric decay
+  else {
+    const T4 = 270.65;
+    const P47 = 110.9;
+    const scaleH = 7200;
+    const P = P47 * Math.exp(-(altitude - 47000) / scaleH);
+    return P / (R * T4);
+  }
 }
 
 /**
@@ -65,7 +114,16 @@ export function calculateEffectiveIsp(altitude: number, ispSL: number, ispVac: n
  * Full Trajectory Simulation Integrator
  */
 export function runTrajectorySimulation(params: SimulationParams): TelemetryPoint[] {
-  const { rocketSpec, payloadMass, pitchKickTime, pitchKickAngle } = params;
+  const {
+    rocketSpec,
+    payloadMass,
+    pitchKickTime,
+    pitchKickAngle,
+    enableDrag = true,
+    launchLatitude = 28.5,
+    windSpeed = 0,
+    windDirection = 0,
+  } = params;
   
   const points: TelemetryPoint[] = [];
   
@@ -73,6 +131,11 @@ export function runTrajectorySimulation(params: SimulationParams): TelemetryPoin
   const dt = 0.5; // 0.5 sec resolution
   const maxTime = 600; // 10 minutes total window
   
+  // Earth rotational speed assist at launch latitude (m/s)
+  const omegaE = 7.292115e-5; // rad/s Earth rotation
+  const latRad = (launchLatitude * Math.PI) / 180;
+  const tangentialEarthVel = EARTH_CONSTANTS.EARTH_ROTATION_SPEED_EQUATOR * Math.cos(latRad);
+
   // Mass initialization
   const fst = rocketSpec.firstStage;
   const snd = rocketSpec.secondStage;
@@ -84,7 +147,7 @@ export function runTrajectorySimulation(params: SimulationParams): TelemetryPoin
   let t = 0;
   let h = 0; // Altitude (m)
   let x = 0; // Downrange distance (m)
-  let vx = 0; // Horizontal velocity (m/s)
+  let vx = 0; // Horizontal velocity relative to launchpad (m/s)
   let vy = 0; // Vertical velocity (m/s)
   let pitch = 0; // Angle from vertical (degrees)
   let phase: FlightPhase = 'PRELAUNCH';
@@ -108,21 +171,44 @@ export function runTrajectorySimulation(params: SimulationParams): TelemetryPoin
     const localG = EARTH_CONSTANTS.G0 * Math.pow(EARTH_CONSTANTS.RADIUS / (EARTH_CONSTANTS.RADIUS + Math.max(0, h)), 2);
     const rho = calculateAtmosphericDensity(h);
     const soundSpeed = calculateSpeedOfSound(h);
+
+    // Wind speed profile with altitude (jet stream amplification between 8km-12km)
+    const altWindMult = h < 30000 ? (1.0 + 1.2 * Math.exp(-Math.pow((h - 10000) / 4500, 2))) : 0;
+    const currentWindSpeed = windSpeed * altWindMult;
+    const windRad = (windDirection * Math.PI) / 180;
+    const windX = currentWindSpeed * Math.cos(windRad); // downrange component
+    const windY = currentWindSpeed * Math.sin(windRad); // cross/vertical wind component
+
+    // Airspeed relative to wind
+    const v_rel_x = vx - windX;
+    const v_rel_y = vy - windY;
+    const v_rel = Math.sqrt(v_rel_x * v_rel_x + v_rel_y * v_rel_y);
     const velocity = Math.sqrt(vx * vx + vy * vy);
-    const mach = velocity / Math.max(1, soundSpeed);
+    const mach = v_rel / Math.max(1, soundSpeed);
+
+    // Dynamic Angle of Attack (AoA) in degrees
+    const flightPathRad = Math.atan2(v_rel_x, v_rel_y);
+    const pitchRad = (pitch * Math.PI) / 180;
+    const angleOfAttackDeg = Math.abs((pitchRad - flightPathRad) * (180 / Math.PI));
     
-    // Dynamic Pressure q = 0.5 * rho * v^2 in Pascals -> convert to kPa
-    const dynamicPressurekPa = (0.5 * rho * velocity * velocity) / 1000;
+    // Dynamic Pressure q = 0.5 * rho * v_rel^2 in Pascals -> convert to kPa
+    const dynamicPressurekPa = (0.5 * rho * v_rel * v_rel) / 1000;
     if (dynamicPressurekPa > maxQValue) {
       maxQValue = dynamicPressurekPa;
     }
 
-    // Aerodynamic Drag Force = 0.5 * rho * v^2 * Cd * Area
+    // Aerodynamic Drag Force = 0.5 * rho * v_rel^2 * Cd * Area (0 if drag toggle disabled)
     const cd = calculateDragCoefficient(mach, rocketSpec.dragCoefficient);
     // Grid fins deployed on entry increase Cd significantly
     const effectiveCd = (phase === 'GRID_FIN_REENTRY' || phase === 'TRANSONIC_DESCENT') ? cd * 2.5 : cd;
-    const dragForceN = 0.5 * rho * velocity * velocity * effectiveCd * rocketSpec.crossSectionArea;
+    const dragForceN = enableDrag
+      ? 0.5 * rho * v_rel * v_rel * effectiveCd * rocketSpec.crossSectionArea
+      : 0;
     const dragForcekN = dragForceN / 1000;
+
+    // Coriolis acceleration components in rotating frame at given launch latitude
+    const coriolisAx = 2 * omegaE * Math.sin(latRad) * vy;
+    const coriolisAy = -2 * omegaE * Math.sin(latRad) * vx;
 
     // Determine Thrust & Throttle for First Stage
     let thrustkN = 0;
@@ -245,9 +331,9 @@ export function runTrajectorySimulation(params: SimulationParams): TelemetryPoin
       const dragX_N = velocity > 0 ? (dragForceN * (vx / velocity)) : 0;
       const dragY_N = velocity > 0 ? (dragForceN * (vy / velocity)) : 0;
       
-      // Net Accelerations (m/s^2) using current total vehicle mass
-      const ax = (thrustX_N - dragX_N) / currentAscentMass;
-      const ay = (thrustY_N - dragY_N) / currentAscentMass - localG;
+      // Net Accelerations (m/s^2) using current total vehicle mass + Coriolis terms
+      const ax = (thrustX_N - dragX_N) / currentAscentMass + coriolisAx;
+      const ay = (thrustY_N - dragY_N) / currentAscentMass - localG + coriolisAy;
       
       // Update velocities
       vx += ax * dt;
@@ -266,7 +352,9 @@ export function runTrajectorySimulation(params: SimulationParams): TelemetryPoin
       const s2_v = Math.sqrt(s2_vx * s2_vx + s2_vy * s2_vy);
       const s2_mach = s2_v / Math.max(1, s2_sound);
       const s2_cd = calculateDragCoefficient(s2_mach, rocketSpec.dragCoefficient);
-      const s2_dragN = 0.5 * s2_rho * s2_v * s2_v * s2_cd * rocketSpec.crossSectionArea;
+      const s2_dragN = enableDrag
+        ? 0.5 * s2_rho * s2_v * s2_v * s2_cd * rocketSpec.crossSectionArea
+        : 0;
 
       // Second Stage MVac Thrust
       let s2_thrustkN = 0;
@@ -280,8 +368,11 @@ export function runTrajectorySimulation(params: SimulationParams): TelemetryPoin
       const s2_pitchDeg = 80 + Math.min(10, (t - 142) * 0.05);
       const s2_pitchRad = (s2_pitchDeg * Math.PI) / 180;
 
-      const s2_ax = (s2_thrustkN * 1000 * Math.sin(s2_pitchRad) - (s2_v > 0 ? s2_dragN * (s2_vx / s2_v) : 0)) / s2_m;
-      const s2_ay = (s2_thrustkN * 1000 * Math.cos(s2_pitchRad) - (s2_v > 0 ? s2_dragN * (s2_vy / s2_v) : 0)) / s2_m - localG;
+      const s2_coriolisAx = 2 * omegaE * Math.sin(latRad) * s2_vy;
+      const s2_coriolisAy = -2 * omegaE * Math.sin(latRad) * s2_vx;
+
+      const s2_ax = (s2_thrustkN * 1000 * Math.sin(s2_pitchRad) - (s2_v > 0 ? s2_dragN * (s2_vx / s2_v) : 0)) / s2_m + s2_coriolisAx;
+      const s2_ay = (s2_thrustkN * 1000 * Math.cos(s2_pitchRad) - (s2_v > 0 ? s2_dragN * (s2_vy / s2_v) : 0)) / s2_m - localG + s2_coriolisAy;
 
       s2_vx += s2_ax * dt;
       s2_vy += s2_ay * dt;

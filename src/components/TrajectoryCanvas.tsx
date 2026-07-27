@@ -12,6 +12,8 @@ interface TrajectoryCanvasProps {
   playbackSpeed: number;
   onSpeedChange: (speed: number) => void;
   selectedRocketName: string;
+  comparisonTelemetry?: TelemetryPoint[] | null;
+  comparisonRocketName?: string;
 }
 
 export const TrajectoryCanvas: React.FC<TrajectoryCanvasProps> = ({
@@ -23,6 +25,8 @@ export const TrajectoryCanvas: React.FC<TrajectoryCanvasProps> = ({
   playbackSpeed,
   onSpeedChange,
   selectedRocketName,
+  comparisonTelemetry,
+  comparisonRocketName,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [zoomLevel, setZoomLevel] = useState<number>(1);
@@ -31,6 +35,38 @@ export const TrajectoryCanvas: React.FC<TrajectoryCanvasProps> = ({
   const [viewFocus, setViewFocus] = useState<'booster' | 'orbital'>('orbital');
 
   const currentPoint = telemetry[currentIndex] || telemetry[0];
+
+  // Keyboard shortcuts event listener
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'SELECT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        onPlayPause();
+      } else if (e.code === 'ArrowLeft') {
+        e.preventDefault();
+        const step = e.shiftKey ? 10 : 2;
+        onIndexChange(Math.max(0, currentIndex - step));
+      } else if (e.code === 'ArrowRight') {
+        e.preventDefault();
+        const step = e.shiftKey ? 10 : 2;
+        onIndexChange(Math.min(telemetry.length - 1, currentIndex + step));
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [currentIndex, isPlaying, telemetry.length, onPlayPause, onIndexChange]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -226,6 +262,43 @@ export const TrajectoryCanvas: React.FC<TrajectoryCanvasProps> = ({
 
     // 4. Draw Trajectory Line (Full Predicted Path & Active Flight Path)
     if (telemetry.length > 1) {
+      // Draw Overlay Comparison Trajectory if available
+      if (comparisonTelemetry && comparisonTelemetry.length > 1) {
+        ctx.beginPath();
+        ctx.strokeStyle = '#F59E0B'; // Dashed Amber
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 4]);
+
+        for (let i = 0; i < comparisonTelemetry.length; i++) {
+          const pt = comparisonTelemetry[i];
+          const sx = toScreenX(pt.downrange);
+          const sy = toScreenY(pt.altitude);
+          if (i === 0) ctx.moveTo(sx, sy);
+          else ctx.lineTo(sx, sy);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]); // Reset line dash
+
+        // Draw active position on comparison run
+        const compPt = comparisonTelemetry[Math.min(currentIndex, comparisonTelemetry.length - 1)];
+        if (compPt) {
+          const csx = toScreenX(compPt.downrange);
+          const csy = toScreenY(compPt.altitude);
+
+          ctx.fillStyle = '#F59E0B';
+          ctx.beginPath();
+          ctx.arc(csx, csy, 5, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = '#FFFFFF';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+
+          ctx.fillStyle = '#F59E0B';
+          ctx.font = 'bold 9px JetBrains Mono, monospace';
+          ctx.fillText(`Compare: ${comparisonRocketName || 'Baseline'} (${(compPt.altitude / 1000).toFixed(0)}km)`, csx + 8, csy - 4);
+        }
+      }
+
       // Full Predicted Stage 1 Booster Trajectory Line in Pink (#f43f5e)
       ctx.beginPath();
       ctx.strokeStyle = 'rgba(244, 63, 94, 0.45)'; // Ghosted Pink predicted landing arc
@@ -563,6 +636,15 @@ export const TrajectoryCanvas: React.FC<TrajectoryCanvasProps> = ({
             >
               <RotateCcw className="w-4 h-4" />
             </button>
+
+            {/* Keyboard Shortcuts Hint */}
+            <div className="hidden lg:flex items-center space-x-1.5 text-[10px] font-mono text-[#8B949E] bg-[#161B22] border border-[#30363D] px-2.5 py-1 rounded-xl">
+              <kbd className="bg-[#21262D] text-[#38BDF8] px-1.5 py-0.5 rounded border border-[#30363D] font-bold">Space</kbd>
+              <span>Play/Pause</span>
+              <span className="text-[#30363D] mx-0.5">|</span>
+              <kbd className="bg-[#21262D] text-[#38BDF8] px-1.5 py-0.5 rounded border border-[#30363D] font-bold">← / →</kbd>
+              <span>Seek</span>
+            </div>
           </div>
 
           {/* Phase Badge */}

@@ -7,6 +7,7 @@ import { TelemetryPanel } from './components/TelemetryPanel';
 import { TelemetryCharts } from './components/TelemetryCharts';
 import { DerivationViewer } from './components/DerivationViewer';
 import { RocketConfigurator } from './components/RocketConfigurator';
+import { MissionEventLog } from './components/MissionEventLog';
 import {
   Rocket,
   Compass,
@@ -23,6 +24,9 @@ import {
   Layers,
   HelpCircle,
   Orbit,
+  GitCompare,
+  Pin,
+  Trash2,
 } from 'lucide-react';
 
 type NavigationTab = 'SIMULATOR' | 'DERIVATIONS' | 'TIMELINE_GUIDE';
@@ -35,6 +39,17 @@ export default function App() {
   const [payloadMass, setPayloadMass] = useState<number>(ROCKET_SPECS.falcon9.defaultPayloadMass);
   const [pitchKickTime, setPitchKickTime] = useState<number>(15);
   const [pitchKickAngle, setPitchKickAngle] = useState<number>(1.8);
+  const [enableDrag, setEnableDrag] = useState<boolean>(true);
+  const [launchLatitude, setLaunchLatitude] = useState<number>(28.5);
+  const [windSpeed, setWindSpeed] = useState<number>(5);
+  const [windDirection, setWindDirection] = useState<number>(0);
+
+  // Compare Trajectories Mode State
+  const [comparisonBaseline, setComparisonBaseline] = useState<{
+    telemetry: TelemetryPoint[];
+    label: string;
+  } | null>(null);
+  const [isCompareMode, setIsCompareMode] = useState<boolean>(false);
 
   // Simulation Telemetry
   const telemetry: TelemetryPoint[] = useMemo(() => {
@@ -45,8 +60,29 @@ export default function App() {
       pitchKickAngle,
       targetLandingDistance: 300000,
       suicideBurnSafetyMargin: 1.05,
+      enableDrag,
+      launchLatitude,
+      windSpeed,
+      windDirection,
     });
-  }, [selectedRocket, payloadMass, pitchKickTime, pitchKickAngle]);
+  }, [
+    selectedRocket,
+    payloadMass,
+    pitchKickTime,
+    pitchKickAngle,
+    enableDrag,
+    launchLatitude,
+    windSpeed,
+    windDirection,
+  ]);
+
+  const handlePinBaseline = () => {
+    setComparisonBaseline({
+      telemetry: [...telemetry],
+      label: `${selectedRocket.name} (${(payloadMass / 1000).toFixed(1)}t Payload, Pitch ${pitchKickAngle}°)`,
+    });
+    setIsCompareMode(true);
+  };
 
   // Playback Control State
   const [currentIndex, setCurrentIndex] = useState<number>(0);
@@ -158,6 +194,65 @@ export default function App() {
       <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-5 space-y-4">
         {activeTab === 'SIMULATOR' && (
           <div className="space-y-4">
+            {/* Compare Trajectories Mode Banner / Control Toolbar */}
+            <div className="bg-[#161B22] border border-[#30363D] rounded-2xl p-3 flex flex-wrap items-center justify-between gap-3 shadow-lg">
+              <div className="flex items-center space-x-2.5">
+                <div className="p-1.5 rounded-lg bg-[#3B82F6]/10 text-[#38BDF8] border border-[#38BDF8]/20">
+                  <GitCompare className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-xs font-bold text-[#F0F6FC] font-mono">TRAJECTORY COMPARISON ENGINE</span>
+                    {isCompareMode && comparisonBaseline && (
+                      <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-mono border border-amber-500/30 animate-pulse">
+                        OVERLAY ACTIVE
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-[#8B949E]">
+                    {isCompareMode && comparisonBaseline
+                      ? `Overlaying current trajectory against: ${comparisonBaseline.label}`
+                      : 'Pin current simulation baseline to compare payload mass, pitch kick, or vehicle specs.'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                {!isCompareMode || !comparisonBaseline ? (
+                  <button
+                    onClick={handlePinBaseline}
+                    className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-[#3B82F6] hover:bg-[#2563EB] text-white font-mono text-xs font-bold transition shadow-md shadow-blue-500/20"
+                  >
+                    <Pin className="w-3.5 h-3.5" />
+                    <span>Snapshot Baseline to Compare</span>
+                  </button>
+                ) : (
+                  <div className="flex items-center space-x-2">
+                    <button
+                      onClick={handlePinBaseline}
+                      className="flex items-center space-x-1 px-2.5 py-1.5 rounded-xl bg-[#21262D] hover:bg-[#30363D] border border-[#30363D] text-[#38BDF8] font-mono text-xs transition"
+                      title="Update baseline to current trajectory"
+                    >
+                      <Pin className="w-3.5 h-3.5" />
+                      <span>Re-pin Baseline</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setIsCompareMode(false);
+                        setComparisonBaseline(null);
+                      }}
+                      className="flex items-center space-x-1 px-2.5 py-1.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 font-mono text-xs transition"
+                      title="Clear comparison overlay"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Clear Overlay</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
             {/* Real-Time Telemetry Bar */}
             <TelemetryPanel currentPoint={currentPoint} />
 
@@ -171,11 +266,13 @@ export default function App() {
               playbackSpeed={playbackSpeed}
               onSpeedChange={setPlaybackSpeed}
               selectedRocketName={selectedRocket.name}
+              comparisonTelemetry={isCompareMode && comparisonBaseline ? comparisonBaseline.telemetry : null}
+              comparisonRocketName={comparisonBaseline?.label}
             />
 
             {/* Dense 2-Column Grid: Configurator & Charts */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-              <div className="lg:col-span-5">
+              <div className="lg:col-span-5 space-y-4">
                 <RocketConfigurator
                   selectedRocket={selectedRocket}
                   onSelectRocket={setSelectedRocket}
@@ -185,14 +282,31 @@ export default function App() {
                   onPitchKickTimeChange={setPitchKickTime}
                   pitchKickAngle={pitchKickAngle}
                   onPitchKickAngleChange={setPitchKickAngle}
+                  enableDrag={enableDrag}
+                  onEnableDragChange={setEnableDrag}
+                  launchLatitude={launchLatitude}
+                  onLaunchLatitudeChange={setLaunchLatitude}
+                  windSpeed={windSpeed}
+                  onWindSpeedChange={setWindSpeed}
+                  windDirection={windDirection}
+                  onWindDirectionChange={setWindDirection}
                 />
               </div>
 
-              <div className="lg:col-span-7">
+              <div className="lg:col-span-7 space-y-4">
                 <TelemetryCharts
                   telemetry={telemetry}
                   currentIndex={currentIndex}
                   onIndexChange={setCurrentIndex}
+                  comparisonTelemetry={isCompareMode && comparisonBaseline ? comparisonBaseline.telemetry : null}
+                  comparisonRocketName={comparisonBaseline?.label}
+                />
+
+                {/* Chronological Mission Flight Event Log */}
+                <MissionEventLog
+                  telemetry={telemetry}
+                  currentIndex={currentIndex}
+                  onSelectIndex={setCurrentIndex}
                 />
               </div>
             </div>

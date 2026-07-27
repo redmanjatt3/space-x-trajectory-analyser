@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { RocketSpec, RocketModelId } from '../types';
 import { ROCKET_SPECS, EARTH_CONSTANTS } from '../physics/constants';
-import { Sliders, Rocket, Weight, Navigation, CheckCircle2, ChevronDown, ChevronUp, Layers, Flame, Zap, Info } from 'lucide-react';
+import { Sliders, Rocket, Weight, Navigation, CheckCircle2, ChevronDown, ChevronUp, Layers, Wind, Globe, ShieldAlert, Sparkles } from 'lucide-react';
 
 interface RocketConfiguratorProps {
   selectedRocket: RocketSpec;
@@ -12,7 +12,23 @@ interface RocketConfiguratorProps {
   onPitchKickTimeChange: (time: number) => void;
   pitchKickAngle: number;
   onPitchKickAngleChange: (angle: number) => void;
+  enableDrag: boolean;
+  onEnableDragChange: (enable: boolean) => void;
+  launchLatitude: number;
+  onLaunchLatitudeChange: (lat: number) => void;
+  windSpeed: number;
+  onWindSpeedChange: (speed: number) => void;
+  windDirection: number;
+  onWindDirectionChange: (dir: number) => void;
 }
+
+const LAUNCH_SITES = [
+  { name: 'Cape Canaveral, FL (SLC-40 / LC-39A)', latitude: 28.5, code: 'KSC/CCSFS' },
+  { name: 'Starbase Boca Chica, TX (Orbital Pad A)', latitude: 26.0, code: 'STARBASE' },
+  { name: 'Vandenberg SFB, CA (SLC-4E - Polar Orbit)', latitude: 34.7, code: 'VSFB' },
+  { name: 'Guiana Space Centre / Equator (Max Rotational Boost)', latitude: 0.0, code: 'EQUATOR' },
+  { name: 'Baikonur Cosmodrome (51.6° N Inclination)', latitude: 51.6, code: 'BAIKONUR' },
+];
 
 export const RocketConfigurator: React.FC<RocketConfiguratorProps> = ({
   selectedRocket,
@@ -23,6 +39,14 @@ export const RocketConfigurator: React.FC<RocketConfiguratorProps> = ({
   onPitchKickTimeChange,
   pitchKickAngle,
   onPitchKickAngleChange,
+  enableDrag,
+  onEnableDragChange,
+  launchLatitude,
+  onLaunchLatitudeChange,
+  windSpeed,
+  onWindSpeedChange,
+  windDirection,
+  onWindDirectionChange,
 }) => {
   const [showAllSpecs, setShowAllSpecs] = useState<boolean>(false);
 
@@ -36,6 +60,10 @@ export const RocketConfigurator: React.FC<RocketConfiguratorProps> = ({
   
   const liftoffThrustN = selectedRocket.firstStage.engine.thrustSeaLevel * 1000;
   const liftoffTW = liftoffThrustN / (glowKg * EARTH_CONSTANTS.G0);
+
+  // Earth rotational speed bonus at latitude
+  const latRad = (launchLatitude * Math.PI) / 180;
+  const earthRotBoost = EARTH_CONSTANTS.EARTH_ROTATION_SPEED_EQUATOR * Math.cos(latRad);
 
   return (
     <div className="bg-[#161B22] border border-[#30363D] rounded-2xl p-3.5 sm:p-5 shadow-2xl space-y-3.5">
@@ -162,6 +190,125 @@ export const RocketConfigurator: React.FC<RocketConfiguratorProps> = ({
           <div className="text-[10px] text-[#8B949E] font-mono flex justify-between">
             <span>0.5°</span>
             <span>T/W: {liftoffTW.toFixed(2)}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Advanced Environmental Controls: Aerodynamic Drag & Launch Latitude */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-[#0D1117] p-3.5 rounded-xl border border-[#30363D] text-xs">
+        {/* Toggle: Aerodynamic Drag Calculation */}
+        <div className="space-y-1.5 flex flex-col justify-between">
+          <div className="flex items-center justify-between">
+            <span className="flex items-center space-x-1.5 font-mono text-[#C9D1D9] font-semibold">
+              <Wind className={`w-3.5 h-3.5 ${enableDrag ? 'text-amber-400' : 'text-[#8B949E]'}`} />
+              <span>Aerodynamic Drag:</span>
+            </span>
+            <button
+              onClick={() => onEnableDragChange(!enableDrag)}
+              className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors focus:outline-none ${
+                enableDrag ? 'bg-amber-500' : 'bg-[#21262D]'
+              }`}
+            >
+              <span
+                className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                  enableDrag ? 'translate-x-5' : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </div>
+          <p className="text-[10px] text-[#8B949E] font-mono leading-tight">
+            {enableDrag ? (
+              <span className="text-amber-300/90 font-medium">Atmospheric Drag active ($F_D = \frac{1}{2}\rho v^2 C_d A$)</span>
+            ) : (
+              <span className="text-blue-300/90 font-medium">Vacuum Trajectory (Frictionless drag = 0)</span>
+            )}
+          </p>
+        </div>
+
+        {/* Dropdown: Initial Launch Latitude (Coriolis Effect) */}
+        <div className="space-y-1.5">
+          <div className="flex justify-between items-center text-[#C9D1D9]">
+            <span className="flex items-center space-x-1.5 font-mono font-semibold">
+              <Globe className="w-3.5 h-3.5 text-[#38BDF8]" />
+              <span>Launch Site Latitude:</span>
+            </span>
+            <span className="font-mono text-[#38BDF8] font-bold text-[11px]">{launchLatitude.toFixed(1)}° N</span>
+          </div>
+
+          <select
+            value={launchLatitude}
+            onChange={(e) => onLaunchLatitudeChange(Number(e.target.value))}
+            className="w-full bg-[#161B22] border border-[#30363D] text-[#F0F6FC] rounded-lg px-2.5 py-1.5 font-mono text-xs focus:outline-none focus:border-[#38BDF8]"
+          >
+            {LAUNCH_SITES.map((site) => (
+              <option key={site.code} value={site.latitude}>
+                {site.name}
+              </option>
+            ))}
+          </select>
+
+          <div className="text-[10px] text-[#8B949E] font-mono flex justify-between items-center pt-0.5">
+            <span>Earth Assist: <strong className="text-emerald-400">+{earthRotBoost.toFixed(1)} m/s</strong></span>
+            <span>Coriolis: <strong className="text-purple-300">{(2 * 7.2921e-5 * Math.sin(latRad) * 1000000).toFixed(2)} µm/s²</strong></span>
+          </div>
+        </div>
+
+        {/* Slider 4: Surface Wind Speed */}
+        <div className="space-y-1.5">
+          <div className="flex justify-between items-center text-[#C9D1D9]">
+            <span className="flex items-center space-x-1 font-mono font-semibold">
+              <Wind className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Surface Wind Speed:</span>
+            </span>
+            <span className="font-mono text-cyan-300 font-bold">{windSpeed.toFixed(0)} m/s ({(windSpeed * 1.94384).toFixed(0)} kts)</span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={30}
+            step={1}
+            value={windSpeed}
+            onChange={(e) => onWindSpeedChange(Number(e.target.value))}
+            className="w-full accent-cyan-400 h-2 bg-[#21262D] rounded-lg cursor-pointer"
+          />
+          <div className="text-[10px] text-[#8B949E] font-mono flex justify-between">
+            <span>0 m/s (Calm)</span>
+            <span>30 m/s (Gale Force)</span>
+          </div>
+        </div>
+
+        {/* Slider 5: Wind Direction / Vector */}
+        <div className="space-y-1.5">
+          <div className="flex justify-between items-center text-[#C9D1D9]">
+            <span className="flex items-center space-x-1 font-mono font-semibold">
+              <Navigation className="w-3.5 h-3.5 text-amber-400" />
+              <span>Wind Direction Vector:</span>
+            </span>
+            <span className="font-mono text-amber-300 font-bold">
+              {windDirection === 0
+                ? '0° (Tailwind)'
+                : windDirection === 180
+                ? '180° (Headwind)'
+                : windDirection === 90
+                ? '90° (Crosswind R)'
+                : windDirection === 270
+                ? '270° (Crosswind L)'
+                : `${windDirection}°`}
+            </span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={360}
+            step={15}
+            value={windDirection}
+            onChange={(e) => onWindDirectionChange(Number(e.target.value))}
+            className="w-full accent-amber-500 h-2 bg-[#21262D] rounded-lg cursor-pointer"
+          />
+          <div className="text-[10px] text-[#8B949E] font-mono flex justify-between">
+            <span>0° (Downrange)</span>
+            <span>180° (Headwind)</span>
+            <span>360°</span>
           </div>
         </div>
       </div>
